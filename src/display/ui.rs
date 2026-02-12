@@ -128,6 +128,8 @@ where
 const HEADER_HEIGHT: u16 = 1;
 const ROW_HEIGHT: u16 = 1;
 const COLUMN_GAP: u16 = 1;
+const CHART_COLOR_START: Color = Color::Rgb(0, 195, 255);
+const CHART_COLOR_END: Color = Color::Rgb(170, 70, 255);
 
 fn render_process_table(frame: &mut Frame, rect: Rect, state: &UIState) {
     if rect.height < HEADER_HEIGHT + 1 {
@@ -300,12 +302,13 @@ fn render_bar_chart(
         return;
     }
 
+    let _ = color;
     let group = BarGroup::default().bars(&bars);
     let chart = BarChart::default()
         .bar_width(1)
         .bar_gap(0)
         .group_gap(0)
-        .bar_style(Style::default().fg(color))
+        .bar_style(Style::default().fg(CHART_COLOR_START))
         .max(max_value)
         .data(group);
 
@@ -357,7 +360,12 @@ fn history_to_bars(
             let ratio = (value / scale_max).clamp(0.0, 1.0);
             let ticks =
                 ((ratio * (CHART_MAX_TICKS as f64 - 1.0)).ceil() as u64).clamp(1, CHART_MAX_TICKS);
-            Bar::default().value(ticks).text_value(String::new())
+            let color_ratio = (ticks.saturating_sub(1)) as f64 / (CHART_MAX_TICKS - 1) as f64;
+            let color = gradient_color(color_ratio);
+            Bar::default()
+                .value(ticks)
+                .text_value(String::new())
+                .style(Style::default().fg(color))
         })
         .collect();
 
@@ -380,6 +388,23 @@ fn max_history_values(state: &UIState) -> (f64, f64) {
         }
     }
     (max_download, max_upload)
+}
+
+fn gradient_color(ratio: f64) -> Color {
+    let ratio = ratio.clamp(0.0, 1.0);
+    let (sr, sg, sb) = color_to_rgb(CHART_COLOR_START);
+    let (er, eg, eb) = color_to_rgb(CHART_COLOR_END);
+    let r = sr as f64 + (er as f64 - sr as f64) * ratio;
+    let g = sg as f64 + (eg as f64 - sg as f64) * ratio;
+    let b = sb as f64 + (eb as f64 - sb as f64) * ratio;
+    Color::Rgb(r.round() as u8, g.round() as u8, b.round() as u8)
+}
+
+fn color_to_rgb(color: Color) -> (u8, u8, u8) {
+    match color {
+        Color::Rgb(r, g, b) => (r, g, b),
+        _ => (0, 0, 0),
+    }
 }
 
 fn sample_history(history: &VecDeque<f64>, target_len: usize) -> Vec<f64> {
