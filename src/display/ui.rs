@@ -127,6 +127,7 @@ where
 
 const HEADER_HEIGHT: u16 = 1;
 const ROW_HEIGHT: u16 = 1;
+const COLUMN_GAP: u16 = 1;
 
 fn render_process_table(frame: &mut Frame, rect: Rect, state: &UIState) {
     if rect.height < HEADER_HEIGHT + 1 {
@@ -195,7 +196,8 @@ fn render_table_header(frame: &mut Frame, rect: Rect) {
             Style::default()
                 .fg(Color::Yellow)
                 .add_modifier(Modifier::BOLD),
-        ));
+        ))
+        .alignment(Alignment::Center);
         frame.render_widget(header, col);
     }
 }
@@ -264,7 +266,7 @@ fn render_bar_chart(frame: &mut Frame, rect: Rect, history: &VecDeque<f64>, colo
         return;
     }
 
-    let (bars, max_value) = history_to_bars(history);
+    let (bars, max_value) = history_to_bars(history, rect.width as usize);
     if bars.is_empty() {
         return;
     }
@@ -281,22 +283,22 @@ fn render_bar_chart(frame: &mut Frame, rect: Rect, history: &VecDeque<f64>, colo
     frame.render_widget(chart, rect);
 }
 
-fn history_to_bars(history: &VecDeque<f64>) -> (Vec<Bar<'static>>, u64) {
+fn history_to_bars(history: &VecDeque<f64>, target_len: usize) -> (Vec<Bar<'static>>, u64) {
     const CHART_HEADROOM: f64 = 1.1;
     const CHART_MAX_TICKS: u64 = 8;
 
-    if history.is_empty() {
+    if history.is_empty() || target_len == 0 {
         return (Vec::new(), CHART_MAX_TICKS);
     }
 
     let mut max_value = 0.0_f64;
-    let values = history
-        .iter()
+    let values = sample_history(history, target_len)
+        .into_iter()
         .map(|value| {
-            let value = if *value > u64::MAX as f64 {
+            let value = if value > u64::MAX as f64 {
                 u64::MAX as f64
             } else {
-                *value
+                value
             };
             if value > max_value {
                 max_value = value;
@@ -324,20 +326,50 @@ fn history_to_bars(history: &VecDeque<f64>) -> (Vec<Bar<'static>>, u64) {
     (bars, CHART_MAX_TICKS)
 }
 
+fn sample_history(history: &VecDeque<f64>, target_len: usize) -> Vec<f64> {
+    if target_len == 0 {
+        return Vec::new();
+    }
+    let history_len = history.len();
+    if history_len == 0 {
+        return vec![0.0; target_len];
+    }
+    if target_len == 1 {
+        return vec![*history.back().unwrap_or(&0.0)];
+    }
+
+    let last_index = history_len.saturating_sub(1);
+    (0..target_len)
+        .map(|i| {
+            let idx = (i * last_index) / (target_len - 1);
+            history.get(idx).copied().unwrap_or(0.0)
+        })
+        .collect()
+}
+
 fn split_columns(rect: Rect) -> Vec<Rect> {
-    Layout::default()
+    let constraints = [
+        Constraint::Length(24),
+        Constraint::Length(COLUMN_GAP),
+        Constraint::Length(12),
+        Constraint::Length(COLUMN_GAP),
+        Constraint::Length(12),
+        Constraint::Length(COLUMN_GAP),
+        Constraint::Length(12),
+        Constraint::Length(COLUMN_GAP),
+        Constraint::Length(12),
+        Constraint::Length(COLUMN_GAP),
+        Constraint::Min(10),
+        Constraint::Length(COLUMN_GAP),
+        Constraint::Min(10),
+    ];
+
+    let chunks = Layout::default()
         .direction(Direction::Horizontal)
-        .constraints([
-            Constraint::Length(24),
-            Constraint::Length(12),
-            Constraint::Length(12),
-            Constraint::Length(12),
-            Constraint::Length(12),
-            Constraint::Min(10),
-            Constraint::Min(10),
-        ])
-        .split(rect)
-        .to_vec()
+        .constraints(constraints)
+        .split(rect);
+
+    chunks.iter().step_by(2).copied().collect()
 }
 
 fn truncate_to_width(text: &str, max_width: u16) -> String {
