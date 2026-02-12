@@ -162,6 +162,8 @@ fn render_process_table(frame: &mut Frame, rect: Rect, state: &UIState) {
         return;
     }
 
+    let (max_download, max_upload) = max_history_values(state);
+
     for (index, row) in state
         .process_rows
         .iter()
@@ -174,7 +176,14 @@ fn render_process_table(frame: &mut Frame, rect: Rect, state: &UIState) {
             width: body_rect.width,
             height: ROW_HEIGHT,
         };
-        render_process_row(frame, row_rect, row, state.unit_family);
+        render_process_row(
+            frame,
+            row_rect,
+            row,
+            state.unit_family,
+            max_download,
+            max_upload,
+        );
     }
 }
 
@@ -182,12 +191,12 @@ fn render_table_header(frame: &mut Frame, rect: Rect) {
     let columns = split_columns(rect);
     let headers = [
         "Process",
-        "Down/s",
-        "Up/s",
+        "Down",
+        "Up",
         "Total Down",
         "Total Up",
-        "Down Chart",
-        "Up Chart",
+        "Down",
+        "Up",
     ];
 
     for (col, title) in columns.into_iter().zip(headers) {
@@ -207,6 +216,8 @@ fn render_process_row(
     rect: Rect,
     row: &crate::display::ProcessRow,
     unit_family: crate::display::BandwidthUnitFamily,
+    max_download: f64,
+    max_upload: f64,
 ) {
     let columns = split_columns(rect);
     let name = truncate_to_width(&row.process.name, columns[0].width);
@@ -257,16 +268,34 @@ fn render_process_row(
         columns[4],
     );
 
-    render_bar_chart(frame, columns[5], &row.download_history, Color::Cyan);
-    render_bar_chart(frame, columns[6], &row.upload_history, Color::Magenta);
+    render_bar_chart(
+        frame,
+        columns[5],
+        &row.download_history,
+        max_download,
+        Color::Cyan,
+    );
+    render_bar_chart(
+        frame,
+        columns[6],
+        &row.upload_history,
+        max_upload,
+        Color::Magenta,
+    );
 }
 
-fn render_bar_chart(frame: &mut Frame, rect: Rect, history: &VecDeque<f64>, color: Color) {
+fn render_bar_chart(
+    frame: &mut Frame,
+    rect: Rect,
+    history: &VecDeque<f64>,
+    global_max: f64,
+    color: Color,
+) {
     if rect.width == 0 || rect.height == 0 {
         return;
     }
 
-    let (bars, max_value) = history_to_bars(history, rect.width as usize);
+    let (bars, max_value) = history_to_bars(history, rect.width as usize, global_max);
     if bars.is_empty() {
         return;
     }
@@ -283,7 +312,11 @@ fn render_bar_chart(frame: &mut Frame, rect: Rect, history: &VecDeque<f64>, colo
     frame.render_widget(chart, rect);
 }
 
-fn history_to_bars(history: &VecDeque<f64>, target_len: usize) -> (Vec<Bar<'static>>, u64) {
+fn history_to_bars(
+    history: &VecDeque<f64>,
+    target_len: usize,
+    global_max: f64,
+) -> (Vec<Bar<'static>>, u64) {
     const CHART_HEADROOM: f64 = 1.1;
     const CHART_MAX_TICKS: u64 = 8;
 
@@ -307,10 +340,15 @@ fn history_to_bars(history: &VecDeque<f64>, target_len: usize) -> (Vec<Bar<'stat
         })
         .collect::<Vec<_>>();
 
-    let scale_max = if max_value <= 0.0 {
+    let scale_basis = if global_max > 0.0 {
+        global_max
+    } else {
+        max_value
+    };
+    let scale_max = if scale_basis <= 0.0 {
         1.0
     } else {
-        max_value * CHART_HEADROOM
+        scale_basis * CHART_HEADROOM
     };
 
     let bars = values
@@ -324,6 +362,24 @@ fn history_to_bars(history: &VecDeque<f64>, target_len: usize) -> (Vec<Bar<'stat
         .collect();
 
     (bars, CHART_MAX_TICKS)
+}
+
+fn max_history_values(state: &UIState) -> (f64, f64) {
+    let mut max_download = 0.0_f64;
+    let mut max_upload = 0.0_f64;
+    for row in &state.process_rows {
+        for value in &row.download_history {
+            if *value > max_download {
+                max_download = *value;
+            }
+        }
+        for value in &row.upload_history {
+            if *value > max_upload {
+                max_upload = *value;
+            }
+        }
+    }
+    (max_download, max_upload)
 }
 
 fn sample_history(history: &VecDeque<f64>, target_len: usize) -> Vec<f64> {
