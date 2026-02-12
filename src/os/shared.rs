@@ -1,17 +1,14 @@
 use std::{
     io::{self, ErrorKind, Write},
-    net::Ipv4Addr,
     time::{self, Duration},
 };
 
+use crate::{os::errors::GetInterfaceError, OsInputOutput};
 use crossterm::event::{poll, read, Event};
 use eyre::{bail, eyre};
 use itertools::Itertools;
 use log::{debug, warn};
 use pnet::datalink::{self, Channel::Ethernet, Config, DataLinkReceiver, NetworkInterface};
-use tokio::runtime::Runtime;
-
-use crate::{network::dns, os::errors::GetInterfaceError, OsInputOutput};
 
 #[cfg(any(target_os = "android", target_os = "linux"))]
 use crate::os::linux::get_open_sockets;
@@ -105,11 +102,7 @@ fn create_write_to_stdout() -> Box<dyn FnMut(&str) + Send> {
     })
 }
 
-pub fn get_input(
-    interface_name: Option<&str>,
-    resolve: bool,
-    dns_server: Option<Ipv4Addr>,
-) -> eyre::Result<OsInputOutput> {
+pub fn get_input(interface_name: Option<&str>) -> eyre::Result<OsInputOutput> {
     // get the user's requested interface, if any
     // IDEA: allow requesting multiple interfaces
     let requested_interfaces = interface_name
@@ -205,26 +198,12 @@ pub fn get_input(
         .filter_map(|(interface, res)| res.ok().map(|frames| (interface, frames)))
         .collect();
 
-    let dns_client = if resolve {
-        let runtime = Runtime::new()?;
-        let resolver = runtime
-            .block_on(dns::Resolver::new(dns_server))
-            .map_err(|err| {
-                eyre!("Could not initialize the DNS resolver. Are you offline?\n\nReason: {err}")
-            })?;
-        let dns_client = dns::Client::new(resolver, runtime)?;
-        Some(dns_client)
-    } else {
-        None
-    };
-
     let write_to_stdout = create_write_to_stdout();
 
     Ok(OsInputOutput {
         interfaces_with_frames,
         get_open_sockets,
         terminal_events: Box::new(TerminalEvents),
-        dns_client,
         write_to_stdout,
     })
 }

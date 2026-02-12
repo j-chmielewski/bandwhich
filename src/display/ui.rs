@@ -1,6 +1,5 @@
 use std::{
     collections::{HashMap, VecDeque},
-    net::IpAddr,
     time::Duration,
 };
 
@@ -115,10 +114,8 @@ where
         &mut self,
         connections_to_procs: HashMap<LocalSocket, ProcessInfo>,
         utilization: Utilization,
-        ip_to_host: HashMap<IpAddr, String>,
     ) {
         self.state.update(connections_to_procs, utilization);
-        let _ = ip_to_host;
     }
     pub fn end(&mut self) {
         self.terminal.show_cursor().unwrap();
